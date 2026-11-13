@@ -1,0 +1,38 @@
+import { createClient } from '@supabase/supabase-js';
+const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+export const config = { api: { bodyParser: { sizeLimit: '4mb' } } };
+const ok = r => { if (r.error) throw new Error(r.error.message); return r.data; };
+
+export default async function handler(req, res) {
+  try {
+    const b = req.body || {};
+    const admin = !!process.env.ADMIN_PASSWORD && req.headers['x-admin'] === process.env.ADMIN_PASSWORD;
+    const need = () => { if (!admin) { res.status(401).json({ error: 'Senha inválida' }); return true; } };
+    switch (b.action) {
+      case 'events': {
+        const ev = ok(await sb.from('events').select('*').order('date', { ascending: false }).order('id', { ascending: false }));
+        await Promise.all(ev.map(async e => {
+          const c = await sb.from('photos').select('id', { count: 'exact', head: true }).eq('event_id', e.id);
+          e.n = c.count || 0;
+          e.peek = e.slideshow ? ok(await sb.from('photos').select('thumb').eq('event_id', e.id).order('id', { ascending: false }).limit(6)).map(r => r.thumb) : [];
+        }));
+        return res.json(ev);
+      }
+      case 'descs': return res.json(ok(await sb.from('photos').select('id,d:descs').eq('event_id', b.eventId)));
+      case 'thumbs': return res.json(ok(await sb.from('photos').select('id,thumb').in('id', b.ids)));
+      case 'photo': return res.json(ok(await sb.from('photos').select('full').eq('id', b.id).single()));
+      case 'check': if (need()) return; return res.json({ ok: true });
+      case 'createEvent': if (need()) return;
+        ok(await sb.from('events').insert({ name: b.name, date: b.date, organizer: b.organizer, cover: b.cover, slideshow: !!b.slideshow }));
+        return res.json({ ok: true });
+      case 'addPhoto': if (need()) return;
+        ok(await sb.from('photos').insert({ event_id: b.eventId, full: b.full, thumb: b.thumb, descs: b.descs || [] }));
+        return res.json({ ok: true });
+      case 'clearPhotos': if (need()) return;
+        ok(await sb.from('photos').delete().eq('event_id', b.eventId)); return res.json({ ok: true });
+      case 'deleteEvent': if (need()) return;
+        ok(await sb.from('events').delete().eq('id', b.id)); return res.json({ ok: true });
+    }
+    res.status(400).json({ error: 'ação inválida' });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+}
