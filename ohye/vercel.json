@@ -1,0 +1,5 @@
+{"rewrites":[
+{"source":"/eventos","destination":"/eventos.html"},
+{"source":"/eventos/:slug","destination":"/evento.html"},
+{"source":"/admin","destination":"/admin.html"},
+{"source":"/admin/descarregar","destination":"/descarregar.html"}]}
